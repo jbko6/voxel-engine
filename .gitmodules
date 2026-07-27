@@ -1,0 +1,3 @@
+[submodule "engine/vulkano"]
+	path = engine/vulkano
+	url = https://github.com/vulkano-rs/vulkano

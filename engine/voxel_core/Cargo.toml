@@ -1,0 +1,9 @@
+[package]
+name = "voxel_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+"voxel_rendering" = { path = "../voxel_rendering" }
+"voxel_world" = { path = "../voxel_world" }
+winit = "0.30.13"

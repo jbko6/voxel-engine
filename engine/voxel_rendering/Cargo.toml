@@ -1,0 +1,12 @@
+[package]
+name = "voxel_rendering"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+winit = "0.30.13"
+vulkano = { git = "https://github.com/vulkano-rs/vulkano" }
+vulkano-taskgraph = { git = "https://github.com/vulkano-rs/vulkano" }
+vulkano-shaders = { git = "https://github.com/vulkano-rs/vulkano" }
+raw-window-handle = "0.6.2"
+tobj = "4.0.4"
