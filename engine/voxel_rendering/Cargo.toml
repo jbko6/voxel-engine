@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-winit = "0.30.13"
-vulkano = { git = "https://github.com/vulkano-rs/vulkano" }
-vulkano-taskgraph = { git = "https://github.com/vulkano-rs/vulkano" }
-vulkano-shaders = { git = "https://github.com/vulkano-rs/vulkano" }
+ash = "0.38.0"
+ash-window = "0.13.0"
 raw-window-handle = "0.6.2"
 tobj = "4.0.4"
+winit = "0.30.13"

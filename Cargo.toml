@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+"voxel_core" = { path = "./engine/voxel_core" }
+"voxel_world" = { path = "./engine/voxel_world" }
+"voxel_rendering" = { path = "./engine/voxel_rendering" }
+winit = "0.30.13"
 
 [workspace]
 members = [
-    "crates/*"
+    "engine/*",
+    "engine/voxel_world/macros"
 ]

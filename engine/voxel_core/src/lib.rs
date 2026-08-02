@@ -3,27 +3,28 @@ use std::sync::Arc;
 use voxel_rendering::Renderer;
 use voxel_world::World;
 use winit::{
-    application::ApplicationHandler, event_loop::{ActiveEventLoop, EventLoop}, window::{WindowAttributes}
+    application::ApplicationHandler, event, event_loop::{ActiveEventLoop, EventLoop}, raw_window_handle::{HasDisplayHandle, HasWindowHandle}, window::WindowAttributes
 };
 
 pub mod schedule;
 
 pub struct App {
+    window: Option<Arc<winit::window::Window>>,
     window_attributes: WindowAttributes,
-    pub rtx: Renderer,
     pub world: World,
+    pub rtx: Renderer,
     pub schedule: schedule::Schedule,
 }
 
 impl App {
     pub fn new(event_loop: &EventLoop<()>) -> App {
-        let renderer = Renderer::new(event_loop);
+        let renderer = Renderer::new(event_loop.display_handle().unwrap().as_raw());
         let mut schedule = schedule::Schedule::new();
-        schedule.add_task_fn(|_world, rtx| rtx.draw());
         App {
+            window: None,
             window_attributes: WindowAttributes::default().with_title("Voxel engine"),
-            rtx: renderer,
             world: World::new(),
+            rtx: renderer,
             schedule,
         }
     }
@@ -32,7 +33,10 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(event_loop.create_window(self.window_attributes.clone()).unwrap());
-        self.rtx.set_window(window);
+        let window_size = window.inner_size();
+        let window_handle = window.window_handle().unwrap();
+        self.rtx.set_window(window_handle.as_raw(), window_size.width, window_size.height);
+        self.window = Some(window);
     }
 
     fn window_event(
@@ -47,10 +51,13 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             winit::event::WindowEvent::Resized(_) => {
-                self.rtx.recreate_swapchain();
+                let window_size = self.window.as_ref().unwrap().inner_size();
+                // self.rtx.recreate_swapchain(window_size.width, window_size.height);
             }
             _ => {}
-        }        
+        }
+
+        self.rtx.draw();
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
