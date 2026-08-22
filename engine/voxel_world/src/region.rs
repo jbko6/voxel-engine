@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use voxel_rendering::Mesh;
+use voxel_rendering::{Mesh, v2::MeshBuilder};
 
 use crate::chunk::{Catalog, Chunk, Voxel};
 
@@ -55,7 +55,7 @@ impl Region {
         None
     }
 
-    pub fn get_meshes_around(&mut self, pos: [usize; 3]) -> Vec<&Mesh> {
+    pub fn get_meshes_around(&mut self, pos: [usize; 3]) -> Vec<&MeshBuilder> {
         let [x, y, z] = [pos[0] - self.origin[0], pos[1] - self.origin[1], pos[2] - self.origin[2]];
 
         let mut coords = Vec::new();

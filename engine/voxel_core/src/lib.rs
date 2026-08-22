@@ -97,7 +97,7 @@ pub struct App {
     controller: CameraController,
     keys_held: KeysHeld,
     mouse_captured: bool,
-    scenario: voxel_rendering::v2::ScenarioHandle,
+    pub scenario: voxel_rendering::v2::ScenarioHandle,
     pub renderer: Renderer,
 }
 
@@ -116,15 +116,6 @@ impl App {
 
         let mut r = Renderer::init(window.clone());
         let scenario = r.create_scenario();
-
-        let mesh = r.load_obj(scenario, &format!("assets/{}.obj", "teapot"));
-        r.create_instance(scenario, Mat4::IDENTITY, mesh);
-
-        let mesh2 = r.load_obj(scenario, &format!("assets/{}.obj", "stanford-bunny"));
-        r.create_instance(scenario, Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0)), mesh2);
-
-        let mesh3 = r.load_obj(scenario, &format!("assets/{}.obj", "triangle"));
-        r.create_instance(scenario, Mat4::from_translation(Vec3::new(-2.0, 0.0, 0.0)), mesh3);
 
         let camera = voxel_rendering::v2::Camera::new(45.0, 0.1, 100.0);
         let controller = CameraController::new(Vec3::new(0.0, 0.0, -10.0));

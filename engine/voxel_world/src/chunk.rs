@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use glam::Vec3;
-use voxel_rendering::{Mesh, Vertex};
+use voxel_rendering::v2::{Mesh, MeshBuilder, Renderer, Vertex};
 
 pub const VOXEL_SIZE: f32 = 0.2;
 
@@ -28,7 +28,7 @@ pub const CHUNK_SIZE: usize = 16;
 
 pub struct Chunk {
     voxels: [[[Voxel; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
-    cached_mesh: Option<Mesh>,
+    cached_mesh: Option<MeshBuilder>,
     catalog: Rc<Catalog>,
 }
 
@@ -82,7 +82,7 @@ impl Chunk {
         }
     }
 
-    pub fn get_mesh(&mut self) -> &Mesh {
+    pub fn get_mesh(&mut self) -> &MeshBuilder {
         if self.cached_mesh.is_none() {
             let mesh = self.generate_mesh();
             self.cached_mesh = Some(mesh);
@@ -90,11 +90,11 @@ impl Chunk {
         self.cached_mesh.as_ref().unwrap()
     }
 
-    pub fn get_mesh_ref(&self) -> Option<&Mesh> {
+    pub fn get_mesh_ref(&self) -> Option<&MeshBuilder> {
         self.cached_mesh.as_ref()
     }
 
-    fn generate_mesh(&self) -> Mesh {
+    fn generate_mesh(&self) -> MeshBuilder {
         #[derive(Clone, Copy, PartialEq)]
         struct MaskCell {
             material: u8,
@@ -111,7 +111,7 @@ impl Chunk {
             self.voxels[x as usize][y as usize][z as usize].material
         };
 
-        let mut mesh = Mesh::new(Vec::new(), Vec::new());
+        let mut mesh = MeshBuilder::new();
 
         for norm in 0..3 {
             let tan = (norm + 1) % 3;
@@ -201,8 +201,8 @@ impl Chunk {
                             let color = self.catalog.material_to_color[material as usize];
                             Vertex {
                                 pos: [pos_vec.x * VOXEL_SIZE, pos_vec.y * VOXEL_SIZE, pos_vec.z * VOXEL_SIZE],
-                                normal,
-                                color,
+                                normal: Some(normal),
+                                color: Some(color),
                             }
                         };
 
@@ -213,7 +213,7 @@ impl Chunk {
                             vert_from_pos([base[0] + dv[0], base[1] + dv[1], base[2] + dv[2]], current.normal, current.material),
                         ];
 
-                        mesh.add_square_face(vertices, current.is_back_face);
+                        mesh.add_square_face(&vertices, current.is_back_face);
 
                         for dy in 0..height {
                             for dx in 0..width {
@@ -227,12 +227,6 @@ impl Chunk {
                 }
             }
         }
-
-        println!(
-            "Generated mesh with {} vertices and {} indices",
-            mesh.vertices().len(),
-            mesh.indices().len()
-        );
 
         mesh
     }

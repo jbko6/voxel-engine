@@ -236,7 +236,7 @@ impl Renderer {
                     );
                 }
 
-                let indirect_calls = scenario.collect_draw_calls();
+                let (draw_calls, indexed_draw_calls) = scenario.collect_draw_calls();
 
                 // Draw non-indexed indirect calls
                 unsafe {
@@ -251,11 +251,55 @@ impl Renderer {
                         )
                         .unwrap();
                     let indirect_buffer_data =
+                        indirect_buffer_ptr as *mut vk::DrawIndirectCommand;
+                    std::ptr::copy_nonoverlapping(
+                        draw_calls.as_ptr(),
+                        indirect_buffer_data,
+                        draw_calls.len(),
+                    );
+                    frame.renderer.context.allocator().unmap_memory(
+                        &mut frame.renderer.frame_data.as_mut().unwrap()
+                            [frame.renderer.current_frame]
+                            .indirect_buffer_allocation,
+                    );
+                    frame
+                        .renderer
+                        .context
+                        .allocator()
+                        .flush_allocation(
+                            &mut frame.renderer.frame_data.as_mut().unwrap()
+                                [frame.renderer.current_frame]
+                                .indirect_buffer_allocation,
+                            0,
+                            vk::WHOLE_SIZE,
+                        )
+                        .unwrap();
+                    frame.renderer.context.device.cmd_draw_indirect(
+                        frame.renderer.current_frame().command_buffer,
+                        frame.renderer.current_frame().indirect_buffer,
+                        0,
+                        draw_calls.len() as u32,
+                        std::mem::size_of::<vk::DrawIndirectCommand>() as u32,
+                    );
+                }
+                // Draw indexed indirect calls
+                unsafe {
+                    let indirect_buffer_ptr = frame
+                        .renderer
+                        .context
+                        .allocator()
+                        .map_memory(
+                            &mut frame.renderer.frame_data.as_mut().unwrap()
+                                [frame.renderer.current_frame]
+                                .indirect_buffer_allocation,
+                        )
+                        .unwrap();
+                    let indirect_buffer_data =
                         indirect_buffer_ptr as *mut vk::DrawIndexedIndirectCommand;
                     std::ptr::copy_nonoverlapping(
-                        indirect_calls.as_ptr(),
+                        indexed_draw_calls.as_ptr(),
                         indirect_buffer_data,
-                        indirect_calls.len(),
+                        indexed_draw_calls.len(),
                     );
                     frame.renderer.context.allocator().unmap_memory(
                         &mut frame.renderer.frame_data.as_mut().unwrap()
@@ -278,7 +322,7 @@ impl Renderer {
                         frame.renderer.current_frame().command_buffer,
                         frame.renderer.current_frame().indirect_buffer,
                         0,
-                        indirect_calls.len() as u32,
+                        indexed_draw_calls.len() as u32,
                         std::mem::size_of::<vk::DrawIndexedIndirectCommand>() as u32,
                     );
                 }

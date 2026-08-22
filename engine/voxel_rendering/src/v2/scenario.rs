@@ -111,21 +111,31 @@ impl Scenario {
         self.scenario_buffer
     }
 
-    pub(crate) fn collect_draw_calls(&self) -> Vec<vk::DrawIndexedIndirectCommand> {
+    pub(crate) fn collect_draw_calls(&self) -> (Vec<vk::DrawIndirectCommand>, Vec<vk::DrawIndexedIndirectCommand>) {
+        let mut indexed_draw_calls = Vec::new();
         let mut draw_calls = Vec::new();
 
         for (i, instance) in self.instances.iter().enumerate() {
             let mesh = &self.meshes[instance.mesh_idx as usize];
             // println!("Instance {} uses mesh {} with index count {}, vertex offset: {}, index offset: {}", i, instance.mesh_idx, mesh.index_count, mesh.vertex_offset, mesh.index_offset);
-            draw_calls.push(vk::DrawIndexedIndirectCommand {
-                index_count: mesh.index_count,
-                instance_count: 1,
-                first_index: mesh.index_offset as u32,
-                vertex_offset: mesh.vertex_offset as i32,
-                first_instance: i as u32,
-            });
+            if mesh.index_offset.is_none() {
+                draw_calls.push(vk::DrawIndirectCommand {
+                    vertex_count: mesh.vertex_count,
+                    instance_count: 1,
+                    first_vertex: mesh.vertex_offset as u32,
+                    first_instance: i as u32,
+                });
+            } else {
+                indexed_draw_calls.push(vk::DrawIndexedIndirectCommand {
+                    index_count: mesh.index_count,
+                    instance_count: 1,
+                    first_index: mesh.index_offset.unwrap() as u32,
+                    vertex_offset: mesh.vertex_offset as i32,
+                    first_instance: i as u32,
+                });
+            }
         }
 
-        draw_calls
+        (draw_calls, indexed_draw_calls)
     }
 }
