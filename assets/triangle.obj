@@ -1,0 +1,7 @@
+# Simple quad
+v -1.0  1.0 0.0   1.0 1.0 0.0 # top left
+v -1.0 -1.0 0.0   1.0 0.0 0.0 # bottom left
+v  1.0 -1.0 0.0   1.0 0.0 1.0 # bottom right
+v  1.0  1.0 0.0   1.0 1.0 1.0 # top right
+f 1 2 3
+f 4 1 3

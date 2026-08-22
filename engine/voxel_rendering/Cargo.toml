@@ -2,10 +2,17 @@
 name = "voxel_rendering"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 ash = "0.38.0"
 ash-window = "0.13.0"
+glam = "0.33.3"
 raw-window-handle = "0.6.2"
+sdl3 = "0.18.4"
 tobj = "4.0.4"
+vk-mem = "0.5.0"
 winit = "0.30.13"
+
+[build-dependencies]
+shaderc = "0.10.1"

@@ -7,3 +7,6 @@ edition = "2024"
 macros = { path = "./macros" }
 indexmap = "2.14.0"
 sorted-vec = "0.8.11"
+voxel_rendering = { path = "../voxel_rendering" }
+glam = "0.33.3"
+noise = "0.9.0"

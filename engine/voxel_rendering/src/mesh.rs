@@ -1,34 +1,85 @@
-use ash::vk;
-use std::{hash::Hash, sync::Arc};
-
 use crate::Renderer;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
-pub struct MeshVertex {
-    pos: [f32; 3],
-    normal: [f32; 3],
-    color: [f32; 3],
+pub struct Vertex {
+    pub pos: [f32; 3],
+    pub normal: [f32; 3],
+    pub color: [f32; 3],
 }
 
+#[derive(Debug)]
 pub struct Mesh {
-    pub vertex_buffer_memory: vk::DeviceMemory,
-    pub vertex_buffer: vk::Buffer,
-    pub index_buffer_memory: vk::DeviceMemory,
-    pub index_buffer: vk::Buffer,
-    pub index_count: u32,
-    device: Arc<ash::Device>,
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+}
+
+impl Mesh {
+    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
+        Mesh { vertices, indices }
+    }
+
+    pub fn vertices(&self) -> &Vec<Vertex> {
+        &self.vertices
+    }
+
+    pub fn vertices_mut(&mut self) -> &mut Vec<Vertex> {
+        &mut self.vertices
+    }
+
+    pub fn indices(&self) -> &Vec<u32> {
+        &self.indices
+    }
+
+    pub fn indices_mut(&mut self) -> &mut Vec<u32> {
+        &mut self.indices
+    }
+
+    pub fn add_square_face(&mut self, vertices: [Vertex; 4], is_back_face: bool) {
+        let start_index = self.vertices.len() as u32;
+        self.vertices.extend_from_slice(&vertices);
+
+        if is_back_face {
+            self.indices.extend_from_slice(&[
+                start_index,
+                start_index + 1,
+                start_index + 2,
+                start_index,
+                start_index + 2,
+                start_index + 3,
+            ]);
+        } else {
+            self.indices.extend_from_slice(&[
+                start_index,
+                start_index + 2,
+                start_index + 1,
+                start_index,
+                start_index + 3,
+                start_index + 2,
+            ]);
+        }
+    }
 }
 
 impl Renderer {
-    pub fn load_obj(&self, path: &str) -> Mesh {
-        let (models, _) =
-            tobj::load_obj(path, &tobj::LoadOptions::default()).expect("Failed to load OBJ file");
+    pub fn load_obj(&self, path: &str) -> Option<Mesh> {
+
+        // return none if the file doesn't exist
+        let models =
+            tobj::load_obj(path, &tobj::LoadOptions::default());
+
+        if models.is_err() {
+            println!("Failed to load OBJ file: {}", path);
+            return None;
+        }
+
+        let (models, _) = models.unwrap();
 
         println!("Loaded {} models from {}", models.len(), path);
 
         if models.len() == 0 {
-            panic!("No models found in OBJ file: {}", path);
+            print!("No models found in OBJ file: {}", path);
+            return None;
         }
 
         let model = &models[0];
@@ -49,8 +100,7 @@ impl Renderer {
                     let normals = &mesh.normals[i * 3..i * 3 + 3];
                     [normals[0], normals[1], normals[2]]
                 } else {
-                    // maybe later compute?
-                    [0.0, 0.0, 1.0]
+                    [0.0, 0.0, 0.0]
                 };
                 let color = if colors_present {
                     let colors = &mesh.vertex_color[i * 3..i * 3 + 3];
@@ -58,13 +108,13 @@ impl Renderer {
                 } else {
                     [1.0, 1.0, 1.0]
                 };
-                MeshVertex {
+                Vertex {
                     pos: [pos[0], pos[1], pos[2]],
                     normal,
                     color,
                 }
             })
-            .collect::<Vec<MeshVertex>>();
+            .collect::<Vec<Vertex>>();
 
         println!(
             "Loaded {} vertices and {} indices from {}",
@@ -73,43 +123,6 @@ impl Renderer {
             path
         );
 
-        // Create vertex buffer
-        let vertex_buffer_size =
-            (std::mem::size_of::<MeshVertex>() * vertices.len()) as vk::DeviceSize;
-
-        let (vertex_buffer, vertex_buffer_memory) = self.create_buffer(
-            vertex_buffer_size,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            // just for now, we can use HOST_VISIBLE | HOST_COHERENT,
-            // but ideally we would use DEVICE_LOCAL and do a staging buffer
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        );
-
-        // Upload to buffers
-        let vertex_buffer_data = vertices.as_slice();
-
-        self.upload_to_buffer(vertex_buffer_memory, vertex_buffer_data);
-
-        Mesh {
-            vertex_buffer_memory: vertex_buffer_memory,
-            vertex_buffer: vertex_buffer,
-            index_buffer_memory: vk::DeviceMemory::null(),
-            index_buffer: vk::Buffer::null(),
-            device: self.device.clone(),
-            index_count: indices.len() as u32,
-        }
-    }
-}
-
-impl Drop for Mesh {
-    fn drop(&mut self) {
-        unsafe {
-            self.device.destroy_buffer(self.vertex_buffer, None);
-            self.device.free_memory(self.vertex_buffer_memory, None);
-            if self.index_buffer != vk::Buffer::null() {
-                self.device.destroy_buffer(self.index_buffer, None);
-                self.device.free_memory(self.index_buffer_memory, None);
-            }
-        }
+        Some(Mesh::new(vertices, indices))
     }
 }
