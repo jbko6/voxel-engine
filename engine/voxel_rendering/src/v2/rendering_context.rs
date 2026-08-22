@@ -4,9 +4,11 @@ use std::{
 };
 
 use ash::{
-    ext::{buffer_device_address, debug_utils, validation_features}, khr::{dynamic_rendering, push_descriptor, shader_draw_parameters, swapchain}, vk::{self, KHR_BUFFER_DEVICE_ADDRESS_NAME, KHR_SHADER_DRAW_PARAMETERS_NAME},
+    ext::{buffer_device_address, debug_utils, validation_features}, khr::{create_renderpass2, depth_stencil_resolve, dynamic_rendering, push_descriptor, shader_draw_parameters, swapchain, synchronization2}, vk::{self, KHR_BUFFER_DEVICE_ADDRESS_NAME, KHR_SHADER_DRAW_PARAMETERS_NAME},
 };
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+
+use crate::v2::{GPUCamera, GlobalBuffer};
 
 unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -43,6 +45,8 @@ pub(crate) struct RenderingContext {
     pub swapchain_instance: ash::khr::swapchain::Instance,
     pub swapchain_device: ash::khr::swapchain::Device,
     pub push_descriptor_device: ash::khr::push_descriptor::Device,
+    pub synchronization2_device: ash::khr::synchronization2::Device,
+    pub dynamic_rendering_device: ash::khr::dynamic_rendering::Device,
     debug_utils_instance: ash::ext::debug_utils::Instance,
     debug_call_back: vk::DebugUtilsMessengerEXT,
     pub pdevice: vk::PhysicalDevice,
@@ -71,7 +75,7 @@ impl RenderingContext {
             .to_vec();
         extension_names.push(debug_utils::NAME.as_ptr());
 
-        let app_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
+        let app_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3);
 
         let instance_info = vk::InstanceCreateInfo::default()
             .enabled_layer_names(&layer_names_raw)
@@ -167,13 +171,40 @@ impl RenderingContext {
             .queue_priorities(&queue_priorities);
         let queue_infos = [queue_info];
 
-        let device_extensions = [
-            dynamic_rendering::NAME.as_ptr(),
-            swapchain::NAME.as_ptr(),
-            push_descriptor::NAME.as_ptr(),
-            vk::KHR_MAINTENANCE1_NAME.as_ptr(),
-            vk::KHR_BUFFER_DEVICE_ADDRESS_NAME.as_ptr(),
+        let supported_extensions = unsafe {
+            instance
+                .enumerate_device_extension_properties(pdevice)
+                .unwrap()
+        };
+        let supported_extension_names: std::collections::HashSet<String> = supported_extensions
+            .iter()
+            .map(|ext| ext.extension_name_as_c_str().unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        let required_extensions = [
+            create_renderpass2::NAME,
+            depth_stencil_resolve::NAME,
+            dynamic_rendering::NAME,
+            swapchain::NAME,
+            push_descriptor::NAME,
+            vk::KHR_BUFFER_DEVICE_ADDRESS_NAME,
+            vk::KHR_MAINTENANCE1_NAME,
+            synchronization2::NAME,
         ];
+
+        for ext in required_extensions {
+            let name = ext.to_string_lossy();
+            assert!(
+                supported_extension_names.contains(name.as_ref()),
+                "Required device extension not supported: {}",
+                name
+            );
+        }
+
+        let device_extensions = required_extensions
+            .iter()
+            .map(|&ext| ext.as_ptr())
+            .collect::<Vec<*const c_char>>();
 
         let features = vk::PhysicalDeviceFeatures {
             multi_draw_indirect: 1,
@@ -182,22 +213,25 @@ impl RenderingContext {
         let mut base_features = vk::PhysicalDeviceFeatures2::default()
             .features(features);
         
-        let mut features11 = vk::PhysicalDeviceVulkan11Features::default();
+        let mut buffer_device_address_features =
+            vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::default()
+                .buffer_device_address(true);
 
-        let mut features12 = vk::PhysicalDeviceVulkan12Features::default()
-            .buffer_device_address(true);
+        let mut dynamic_rendering_features =
+            vk::PhysicalDeviceDynamicRenderingFeaturesKHR::default()
+                .dynamic_rendering(true);
 
-        let mut features13 = vk::PhysicalDeviceVulkan13Features::default()
-            .dynamic_rendering(true)
-            .synchronization2(true);
+        let mut synchronization2_features =
+            vk::PhysicalDeviceSynchronization2FeaturesKHR::default()
+                .synchronization2(true);
 
         let device_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_infos)
             .enabled_extension_names(&device_extensions)
             .push_next(&mut base_features)
-            .push_next(&mut features11)
-            .push_next(&mut features12)
-            .push_next(&mut features13);
+            .push_next(&mut buffer_device_address_features)
+            .push_next(&mut dynamic_rendering_features)
+            .push_next(&mut synchronization2_features);
         let device = unsafe { instance.create_device(pdevice, &device_info, None).unwrap() };
 
         // Queue
@@ -205,7 +239,7 @@ impl RenderingContext {
 
         // Allocator
         let mut allocator_info = vk_mem::AllocatorCreateInfo::new(&instance, &device, pdevice.clone());
-        allocator_info.vulkan_api_version = vk::API_VERSION_1_2;
+        allocator_info.vulkan_api_version = vk::API_VERSION_1_3;
         allocator_info.flags = vk_mem::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
         let allocator = unsafe { vk_mem::Allocator::new(allocator_info).unwrap() };
 
@@ -214,6 +248,8 @@ impl RenderingContext {
         let swapchain_instance = ash::khr::swapchain::Instance::new(&entry, &instance);
         let swapchain_device = ash::khr::swapchain::Device::new(&instance, &device);
         let push_descriptor_device = ash::khr::push_descriptor::Device::new(&instance, &device);
+        let synchronization2_device = ash::khr::synchronization2::Device::new(&instance, &device);
+        let dynamic_rendering_device = ash::khr::dynamic_rendering::Device::new(&instance, &device);
 
         // Debug
         let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
@@ -224,7 +260,8 @@ impl RenderingContext {
             )
             .message_type(
                 vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE
+                    | vk::DebugUtilsMessageTypeFlagsEXT::GENERAL,
             )
             .pfn_user_callback(Some(vulkan_debug_callback));
         let debug_utils_instance = ash::ext::debug_utils::Instance::new(&entry, &instance);
@@ -251,6 +288,21 @@ impl RenderingContext {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::VERTEX),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::VERTEX),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(2)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::VERTEX),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::VERTEX),
         ];
 
         let descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::default()
@@ -266,9 +318,16 @@ impl RenderingContext {
         let set_layouts = [
             descriptor_set_layout
         ];
+        let push_constants = [
+            vk::PushConstantRange::default()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .offset(0)
+            .size(std::mem::size_of::<GPUCamera>() as u32)
+        ];
         let pipeline_layout_info =
             vk::PipelineLayoutCreateInfo::default()
-                .set_layouts(&set_layouts);
+                .set_layouts(&set_layouts)
+                .push_constant_ranges(&push_constants);
         let pipeline_layout = unsafe {
             device
                 .create_pipeline_layout(&pipeline_layout_info, None)
@@ -286,6 +345,8 @@ impl RenderingContext {
             swapchain_instance,
             swapchain_device,
             push_descriptor_device,
+            synchronization2_device,
+            dynamic_rendering_device,
             debug_utils_instance,
             debug_call_back,
             allocator: Some(allocator),

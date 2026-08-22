@@ -3,7 +3,7 @@ use glam::{Mat4, camera::rh::proj::vulkan::perspective};
 use crate::v2::{GPUScenario, Renderer, ScenarioHandle};
 
 /// GPU representation of a camera
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 #[repr(C)]
 pub(crate) struct GPUCamera {
     pub view_matrix: Mat4,
@@ -59,11 +59,6 @@ impl Renderer  {
     pub fn update_camera(&mut self, scenario: ScenarioHandle, camera: &Camera, aspect_ratio: f32) {
         let scenario = &mut self.scenarios[scenario.index];
         let gpu_camera = camera.get_gpu_camera(aspect_ratio);
-        unsafe {
-            let ptr = self.context.allocator().map_memory(&mut scenario.scenario_allocation).unwrap();
-            let data = ptr as *mut GPUScenario;
-            (*data).camera = gpu_camera;
-            self.context.allocator().unmap_memory(&mut scenario.scenario_allocation);
-        }
+        scenario.update_camera(gpu_camera);
     }
 }

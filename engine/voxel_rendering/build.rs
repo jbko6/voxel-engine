@@ -49,8 +49,8 @@ fn compile_shader(path_buf: &std::path::PathBuf, shader_kind: shaderc::ShaderKin
     println!("compiling shader {:?}", path_buf);
 
     let mut options = shaderc::CompileOptions::new().expect("failed to create shader compile options");
-    options.set_target_env(shaderc::TargetEnv::Vulkan, shaderc::EnvVersion::Vulkan1_2 as u32);
-    options.set_target_spirv(shaderc::SpirvVersion::V1_5);
+    options.set_target_env(shaderc::TargetEnv::Vulkan, shaderc::EnvVersion::Vulkan1_3 as u32);
+    options.set_target_spirv(shaderc::SpirvVersion::V1_6);
 
     let spv = compiler
         .compile_into_spirv(

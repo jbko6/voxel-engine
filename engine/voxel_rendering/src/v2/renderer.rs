@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
-use ash::vk;
+use ash::{khr::synchronization2, vk};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use vk_mem::Alloc;
 
-use crate::v2::{FrameData, GPUScenario, Image, Pipeline, RenderingContext, Scenario, Shader, Swapchain};
+use crate::v2::{
+    BufferType, FrameData, GPUCamera, GPUScenario, GlobalBuffer, Image, Pipeline, RenderingContext,
+    Scenario, Shader, Swapchain,
+};
 
 const FRAMES_IN_FLIGHT: usize = 2;
 
@@ -16,8 +19,11 @@ pub struct Renderer {
     current_frame: usize,
     surface: vk::SurfaceKHR,
     swapchain: Option<Swapchain>,
+    pub(crate) global_buffer: GlobalBuffer,
     pub(crate) scenarios: Vec<Scenario>,
     pipeline: Option<Pipeline>, // TODO: add pipeline management
+    frame_index: usize,
+    frame_start_time: std::time::Instant,
 }
 
 impl Renderer {
@@ -44,7 +50,10 @@ impl Renderer {
 
         let swapchain = Swapchain::init(context.clone(), surface, width, height).ok();
 
-        println!("Renderer initialized with width: {}, height: {}", width, height);
+        println!(
+            "Renderer initialized with width: {}, height: {}",
+            width, height
+        );
 
         let pipeline = Pipeline::init(
             context.clone(),
@@ -55,7 +64,12 @@ impl Renderer {
             Shader::new(context.clone(), "shaders/fragment.frag.spv"),
         );
 
-        println!("Renderer initialization complete. Swapchain format: {:?}", swapchain.as_ref().map(|sc| sc.format));
+        let global_buffer = GlobalBuffer::new(context.allocator());
+
+        println!(
+            "Renderer initialization complete. Swapchain format: {:?}",
+            swapchain.as_ref().map(|sc| sc.format)
+        );
 
         Renderer {
             context,
@@ -66,7 +80,10 @@ impl Renderer {
             surface,
             swapchain,
             pipeline: Some(pipeline),
+            global_buffer: global_buffer,
             scenarios: Vec::new(),
+            frame_index: 0,
+            frame_start_time: std::time::Instant::now(),
         }
     }
 
@@ -114,54 +131,157 @@ impl Renderer {
                 extent: frame.renderer.swapchain.as_ref().unwrap().extent,
             };
             unsafe {
-                frame.renderer.context
-                    .device
-                    .cmd_set_viewport(frame.renderer.current_frame().command_buffer, 0, &[viewport]);
-                frame.renderer.context
-                    .device
-                    .cmd_set_scissor(frame.renderer.current_frame().command_buffer, 0, &[scissor]);
+                frame.renderer.context.device.cmd_set_viewport(
+                    frame.renderer.current_frame().command_buffer,
+                    0,
+                    &[viewport],
+                );
+                frame.renderer.context.device.cmd_set_scissor(
+                    frame.renderer.current_frame().command_buffer,
+                    0,
+                    &[scissor],
+                );
             }
 
-            for scenario in &frame.renderer.scenarios {
-                // Update descriptor sets for the scenario
-                unsafe {
-                    frame.renderer.context.push_descriptor_device.cmd_push_descriptor_set(
+            unsafe {
+                frame
+                    .renderer
+                    .context
+                    .push_descriptor_device
+                    .cmd_push_descriptor_set(
                         frame.renderer.current_frame().command_buffer,
                         vk::PipelineBindPoint::GRAPHICS,
                         frame.renderer.context.pipeline_layout,
-                        0, // set number
-                        &[vk::WriteDescriptorSet::default()
-                            .dst_binding(0)
-                            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                            .buffer_info(&[vk::DescriptorBufferInfo {
-                                buffer: scenario.scenario_buffer,
-                                offset: 0,
-                                range: std::mem::size_of::<GPUScenario>() as u64,
-                            }])],
+                        0,
+                        &[
+                            vk::WriteDescriptorSet::default()
+                                .dst_binding(1)
+                                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                                .buffer_info(&[vk::DescriptorBufferInfo {
+                                    buffer: frame
+                                        .renderer
+                                        .global_buffer
+                                        .get_buffer(BufferType::VERTEX),
+                                    offset: 0,
+                                    range: vk::WHOLE_SIZE,
+                                }]),
+                            vk::WriteDescriptorSet::default()
+                                .dst_binding(2)
+                                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                                .buffer_info(&[vk::DescriptorBufferInfo {
+                                    buffer: frame
+                                        .renderer
+                                        .global_buffer
+                                        .get_buffer(BufferType::NORMAL),
+                                    offset: 0,
+                                    range: vk::WHOLE_SIZE,
+                                }]),
+                            vk::WriteDescriptorSet::default()
+                                .dst_binding(3)
+                                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                                .buffer_info(&[vk::DescriptorBufferInfo {
+                                    buffer: frame
+                                        .renderer
+                                        .global_buffer
+                                        .get_buffer(BufferType::COLOR),
+                                    offset: 0,
+                                    range: vk::WHOLE_SIZE,
+                                }]),
+                        ],
+                    );
+            }
+
+            unsafe {
+                frame.renderer.context.device.cmd_bind_index_buffer(
+                    frame.renderer.current_frame().command_buffer,
+                    frame.renderer.global_buffer.get_buffer(BufferType::INDEX),
+                    0,
+                    vk::IndexType::UINT32,
+                );
+            }
+
+            for (i, scenario) in frame.renderer.scenarios.iter().enumerate() {
+                // Update descriptor sets for the scenario
+                unsafe {
+                    frame
+                        .renderer
+                        .context
+                        .push_descriptor_device
+                        .cmd_push_descriptor_set(
+                            frame.renderer.current_frame().command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            frame.renderer.context.pipeline_layout,
+                            0, // set number
+                            &[vk::WriteDescriptorSet::default()
+                                .dst_binding(0)
+                                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                                .buffer_info(&[vk::DescriptorBufferInfo {
+                                    buffer: scenario.buffer(),
+                                    offset: 0,
+                                    range: vk::WHOLE_SIZE,
+                                }])],
+                        );
+                }
+
+                unsafe {
+                    frame.renderer.context.device.cmd_push_constants(
+                        frame.renderer.current_frame().command_buffer,
+                        frame.renderer.context.pipeline_layout,
+                        vk::ShaderStageFlags::VERTEX,
+                        0,
+                        std::slice::from_raw_parts(
+                            &scenario.camera as *const _ as *const u8,
+                            std::mem::size_of::<GPUCamera>(),
+                        ),
                     );
                 }
 
                 let indirect_calls = scenario.collect_draw_calls();
-                
+
                 // Draw non-indexed indirect calls
                 unsafe {
-                    let indirect_buffer_ptr = frame.renderer.context.allocator().map_memory(&mut frame.renderer.frame_data.as_mut().unwrap()[frame.renderer.current_frame].indirect_buffer_allocation).unwrap();
-                    let indirect_buffer_data = indirect_buffer_ptr as *mut vk::DrawIndirectCommand;
+                    let indirect_buffer_ptr = frame
+                        .renderer
+                        .context
+                        .allocator()
+                        .map_memory(
+                            &mut frame.renderer.frame_data.as_mut().unwrap()
+                                [frame.renderer.current_frame]
+                                .indirect_buffer_allocation,
+                        )
+                        .unwrap();
+                    let indirect_buffer_data =
+                        indirect_buffer_ptr as *mut vk::DrawIndexedIndirectCommand;
                     std::ptr::copy_nonoverlapping(
                         indirect_calls.as_ptr(),
                         indirect_buffer_data,
                         indirect_calls.len(),
                     );
-                    frame.renderer.context.allocator().unmap_memory(&mut frame.renderer.frame_data.as_mut().unwrap()[frame.renderer.current_frame].indirect_buffer_allocation);
-                    frame.renderer.context.device.cmd_draw_indirect(
+                    frame.renderer.context.allocator().unmap_memory(
+                        &mut frame.renderer.frame_data.as_mut().unwrap()
+                            [frame.renderer.current_frame]
+                            .indirect_buffer_allocation,
+                    );
+                    frame
+                        .renderer
+                        .context
+                        .allocator()
+                        .flush_allocation(
+                            &mut frame.renderer.frame_data.as_mut().unwrap()
+                                [frame.renderer.current_frame]
+                                .indirect_buffer_allocation,
+                            0,
+                            vk::WHOLE_SIZE,
+                        )
+                        .unwrap();
+                    frame.renderer.context.device.cmd_draw_indexed_indirect(
                         frame.renderer.current_frame().command_buffer,
                         frame.renderer.current_frame().indirect_buffer,
                         0,
                         indirect_calls.len() as u32,
-                        std::mem::size_of::<vk::DrawIndirectCommand>() as u32,
+                        std::mem::size_of::<vk::DrawIndexedIndirectCommand>() as u32,
                     );
                 }
-
             }
 
             frame.end_frame();
@@ -228,7 +348,7 @@ impl Renderer {
 
         // UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL
         Self::transition_image(
-            &self.context.device,
+            &self.context.synchronization2_device,
             frame.command_buffer,
             swap_image,
             vk::ImageAspectFlags::COLOR,
@@ -241,7 +361,7 @@ impl Renderer {
         );
         // UNDEFINED -> DEPTH_ATTACHMENT_OPTIMAL
         Self::transition_image(
-            &self.context.device,
+            &self.context.synchronization2_device,
             frame.command_buffer,
             self.swapchain.as_ref().unwrap().depth_image.handle(),
             vk::ImageAspectFlags::DEPTH,
@@ -285,7 +405,7 @@ impl Renderer {
 
         unsafe {
             self.context
-                .device
+                .dynamic_rendering_device
                 .cmd_begin_rendering(frame.command_buffer, &rendering_info);
         }
 
@@ -297,7 +417,7 @@ impl Renderer {
     }
 
     fn transition_image(
-        device: &ash::Device,
+        device: &synchronization2::Device,
         cmd: vk::CommandBuffer,
         image: vk::Image,
         aspect_mask: vk::ImageAspectFlags,
@@ -340,6 +460,7 @@ impl Drop for Renderer {
         unsafe {
             self.context.device.device_wait_idle().unwrap();
             self.scenarios.clear(); // Drop scenarios first
+            self.global_buffer.free(self.context.allocator());
             self.pipeline = None; // Drop pipeline next
             self.swapchain = None; // Drop swapchain next
             self.frame_data = None; // Drop frame data next
@@ -363,12 +484,14 @@ impl<'a> Frame<'a> {
         let swapchain_image = r.swapchain.as_ref().unwrap().images[self.image_index as usize];
 
         unsafe {
-            r.context.device.cmd_end_rendering(frame.command_buffer);
+            r.context
+                .dynamic_rendering_device
+                .cmd_end_rendering(frame.command_buffer);
         }
 
         // COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
         Renderer::transition_image(
-            &r.context.device,
+            &r.context.synchronization2_device,
             frame.command_buffer,
             swapchain_image,
             vk::ImageAspectFlags::COLOR,
@@ -387,25 +510,33 @@ impl<'a> Frame<'a> {
                 .unwrap();
         }
 
-        let wait_semaphores = [frame.image_available_semaphore];
-        let signal_semaphores =
-            [r.swapchain.as_ref().unwrap().render_finished_semaphores[self.image_index as usize]];
-        let command_buffers = [frame.command_buffer];
-        let submit_info = vk::SubmitInfo::default()
-            .wait_semaphores(&wait_semaphores)
-            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-            .command_buffers(&command_buffers)
-            .signal_semaphores(&signal_semaphores);
+        let wait_semaphores_info = [vk::SemaphoreSubmitInfo::default()
+            .semaphore(frame.image_available_semaphore)
+            .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+            .device_index(0)];
+        let command_buffers_info =
+            [vk::CommandBufferSubmitInfo::default().command_buffer(frame.command_buffer)];
+        let signal_semaphores_info = [vk::SemaphoreSubmitInfo::default()
+            .semaphore(
+                r.swapchain.as_ref().unwrap().render_finished_semaphores[self.image_index as usize],
+            )
+            .stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
+            .device_index(0)];
+        let submit_info = vk::SubmitInfo2::default()
+            .wait_semaphore_infos(&wait_semaphores_info)
+            .command_buffer_infos(&command_buffers_info)
+            .signal_semaphore_infos(&signal_semaphores_info);
 
         unsafe {
             r.context
                 .device
-                .queue_submit(r.context.queue, &[submit_info], frame.in_flight_fence)
+                .queue_submit2(r.context.queue, &[submit_info], frame.in_flight_fence)
                 .unwrap();
         }
 
         let swapchains = [r.swapchain.as_ref().unwrap().handle];
         let image_indices = [self.image_index];
+        let signal_semaphores = [r.swapchain.as_ref().unwrap().render_finished_semaphores[self.image_index as usize]];
         let present_info = vk::PresentInfoKHR::default()
             .wait_semaphores(&signal_semaphores)
             .swapchains(&swapchains)
@@ -425,11 +556,15 @@ impl<'a> Frame<'a> {
             Err(e) => panic!("failed to present: {e:?}"),
         }
 
-        println!(
-            "Frame time: {:.2} ms",
-            self.frame_start_time.elapsed().as_secs_f32() * 1000.0
-        );
+        if (r.frame_index + 1) % 100 == 0 {
+            println!(
+                "Average frame time over last 100 frames: {:.2} ms",
+                r.frame_start_time.elapsed().as_secs_f32() * 1000.0 / 100.0
+            );
+            r.frame_start_time = std::time::Instant::now();
+        }
 
         r.current_frame = (r.current_frame + 1) % FRAMES_IN_FLIGHT;
+        r.frame_index += 1;
     }
 }

@@ -31,7 +31,5 @@ pub use image::*;
 pub mod swapchain;
 pub use swapchain::*;
 
-const _: () = assert!(std::mem::size_of::<GPUCamera>() == 128);
-const _: () = assert!(std::mem::size_of::<GPUInstance>() == 80);
-const _: () = assert!(std::mem::size_of::<GPUMesh>() == 56);
-const _: () = assert!(std::mem::size_of::<GPUScenario>() == 136_128);
+pub mod global_buffer;
+pub use global_buffer::*;

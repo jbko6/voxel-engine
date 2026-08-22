@@ -11,18 +11,18 @@ pub const MAX_MESHES: usize = 1000;
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub(crate) struct GPUScenario {
-    pub camera: GPUCamera,
     pub instances: [GPUInstance; MAX_INSTANCES],
     pub meshes: [GPUMesh; MAX_MESHES],
 }
 
 pub struct Scenario {
     // later: environment, lighting
-    pub(crate) context: Arc<RenderingContext>,
-    pub(crate) scenario_allocation: vk_mem::Allocation,
-    pub(crate) scenario_buffer: vk::Buffer,
-    pub(crate) instances: Vec<Instance>,
-    pub(crate) meshes: Vec<Mesh>,
+    context: Arc<RenderingContext>,
+    scenario_allocation: vk_mem::Allocation,
+    scenario_buffer: vk::Buffer,
+    pub(crate) camera: GPUCamera,
+    instances: Vec<Instance>,
+    meshes: Vec<Mesh>,
 }
 
 #[derive(Clone, Copy)]
@@ -61,6 +61,7 @@ impl Renderer {
             context: self.context.clone(),
             scenario_allocation: allocation,
             scenario_buffer: buffer,
+            camera: GPUCamera::default(),
             instances: Vec::new(),
             meshes: Vec::new(),
         };
@@ -72,26 +73,57 @@ impl Renderer {
 }
 
 impl Scenario {
-    pub(crate) fn collect_draw_calls(&self) -> Vec<vk::DrawIndirectCommand> {
+    pub(crate) fn update_camera(&mut self, camera: GPUCamera) {
+        self.camera = camera;
+    }
+
+    pub(crate) fn add_instance(&mut self, instance: Instance) -> usize {
+        let gpu_instance = instance.gpu_instance();
+
+        unsafe {
+            let ptr = self.context.allocator().map_memory(&mut self.scenario_allocation).unwrap();
+            let data = ptr as *mut GPUScenario;
+            (*data).instances[self.instances.len()] = gpu_instance;
+            self.context.allocator().unmap_memory(&mut self.scenario_allocation);
+            self.context.allocator().flush_allocation(&mut self.scenario_allocation, 0, vk::WHOLE_SIZE).unwrap();
+        }
+
+        self.instances.push(instance);
+        self.instances.len() - 1
+    }
+
+    pub(crate) fn add_mesh(&mut self, mesh: Mesh) -> usize {
+        let gpu_mesh = mesh.gpu_mesh();
+
+        unsafe {
+            let ptr = self.context.allocator().map_memory(&mut self.scenario_allocation).unwrap();
+            let data = ptr as *mut GPUScenario;
+            (*data).meshes[self.meshes.len()] = gpu_mesh;
+            self.context.allocator().unmap_memory(&mut self.scenario_allocation);
+            self.context.allocator().flush_allocation(&mut self.scenario_allocation, 0, vk::WHOLE_SIZE).unwrap();
+        }
+
+        self.meshes.push(mesh);
+        self.meshes.len() - 1
+    }
+
+    pub(crate) fn buffer(&self) -> vk::Buffer {
+        self.scenario_buffer
+    }
+
+    pub(crate) fn collect_draw_calls(&self) -> Vec<vk::DrawIndexedIndirectCommand> {
         let mut draw_calls = Vec::new();
 
         for (i, instance) in self.instances.iter().enumerate() {
             let mesh = &self.meshes[instance.mesh_idx as usize];
-            if mesh.index_count > 0 {
-                draw_calls.push(vk::DrawIndirectCommand {
-                    vertex_count: mesh.index_count,
-                    instance_count: 1,
-                    first_vertex: 0,
-                    first_instance: i as u32,
-                });
-            } else {
-                draw_calls.push(vk::DrawIndirectCommand {
-                    vertex_count: mesh.vertex_count,
-                    instance_count: 1,
-                    first_vertex: 0,
-                    first_instance: i as u32,
-                });
-            }
+            // println!("Instance {} uses mesh {} with index count {}, vertex offset: {}, index offset: {}", i, instance.mesh_idx, mesh.index_count, mesh.vertex_offset, mesh.index_offset);
+            draw_calls.push(vk::DrawIndexedIndirectCommand {
+                index_count: mesh.index_count,
+                instance_count: 1,
+                first_index: mesh.index_offset as u32,
+                vertex_offset: mesh.vertex_offset as i32,
+                first_instance: i as u32,
+            });
         }
 
         draw_calls

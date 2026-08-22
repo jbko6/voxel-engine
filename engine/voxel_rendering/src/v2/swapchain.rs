@@ -54,10 +54,12 @@ impl Swapchain {
             return Err(()); // minimized — skip, don't try to create a 0-size swapchain
         }
 
-        let mut image_count = capabilities.min_image_count + 1;
-        if capabilities.max_image_count > 0 {
-            image_count = image_count.min(capabilities.max_image_count);
-        }
+        let image_count = 3.max(capabilities.min_image_count)
+            .min(if capabilities.max_image_count == 0 {
+                u32::MAX
+            } else {
+                capabilities.max_image_count
+            });
 
         let present_modes = unsafe {
             context.surface_instance.get_physical_device_surface_present_modes(context.pdevice, surface).unwrap()
@@ -126,6 +128,8 @@ impl Swapchain {
         let render_finished_semaphores = images.iter().map(|_| {
             unsafe { context.device.create_semaphore(&semaphore_info, None).unwrap() }
         }).collect();
+
+        println!("Swapchain created with {} images, format: {:?}, extent: {:?}", images.len(), surface_format.format, extent);
 
         Ok(Self { context, handle, images, image_views, depth_image, depth_image_view, format: surface_format.format, extent, render_finished_semaphores })
     }
