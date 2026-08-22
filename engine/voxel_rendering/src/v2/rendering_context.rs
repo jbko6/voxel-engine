@@ -71,7 +71,7 @@ impl RenderingContext {
             .to_vec();
         extension_names.push(debug_utils::NAME.as_ptr());
 
-        let app_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3);
+        let app_info = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
 
         let instance_info = vk::InstanceCreateInfo::default()
             .enabled_layer_names(&layer_names_raw)
@@ -123,6 +123,43 @@ impl RenderingContext {
                 .expect("No available physical device")
         };
 
+        let pdevice_properties = unsafe { instance.get_physical_device_properties(pdevice) };
+        println!(
+            "Selected device: {} (API version: {}.{}.{})",
+            pdevice_properties.device_name_as_c_str().unwrap().to_string_lossy(),
+            vk::api_version_major(pdevice_properties.api_version),
+            vk::api_version_minor(pdevice_properties.api_version),
+            vk::api_version_patch(pdevice_properties.api_version),
+        );
+
+        assert!(
+            pdevice_properties.api_version >= vk::API_VERSION_1_3,
+            "Selected physical device does not support Vulkan 1.3"
+        );
+
+        let mut supported_features12 = vk::PhysicalDeviceVulkan12Features::default();
+        let mut supported_features13 = vk::PhysicalDeviceVulkan13Features::default();
+        let mut supported_features2 = vk::PhysicalDeviceFeatures2::default()
+            .push_next(&mut supported_features12)
+            .push_next(&mut supported_features13);
+
+        unsafe {
+            instance.get_physical_device_features2(pdevice, &mut supported_features2);
+        }
+
+        assert!(
+            supported_features12.buffer_device_address == vk::TRUE,
+            "Device does not support bufferDeviceAddress"
+        );
+        assert!(
+            supported_features13.dynamic_rendering == vk::TRUE,
+            "Device does not support dynamicRendering"
+        );
+        assert!(
+            supported_features13.synchronization2 == vk::TRUE,
+            "Device does not support synchronization2"
+        );
+
         // Device
         let queue_priorities = [1.0];
         let queue_info = vk::DeviceQueueCreateInfo::default()
@@ -168,7 +205,7 @@ impl RenderingContext {
 
         // Allocator
         let mut allocator_info = vk_mem::AllocatorCreateInfo::new(&instance, &device, pdevice.clone());
-        allocator_info.vulkan_api_version = vk::API_VERSION_1_3;
+        allocator_info.vulkan_api_version = vk::API_VERSION_1_2;
         allocator_info.flags = vk_mem::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
         let allocator = unsafe { vk_mem::Allocator::new(allocator_info).unwrap() };
 
