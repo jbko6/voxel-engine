@@ -454,6 +454,15 @@ impl Renderer {
                                         index as u32,
                                     )
                                 }
+                                RawDisplayHandle::Wayland(wayland_display) => {
+                                    let wayland_surface =
+                                        ash::khr::wayland_surface::Instance::new(entry, instance);
+                                    wayland_surface.get_physical_device_wayland_presentation_support(
+                                        *pdevice,
+                                        index as u32,
+                                        &mut *(wayland_display.display.as_ptr() as *mut std::os::raw::c_void),
+                                    )
+                                }
                                 _ => false, // Add support for other platforms as needed
                             };
                             if supports_graphics && supports_present {

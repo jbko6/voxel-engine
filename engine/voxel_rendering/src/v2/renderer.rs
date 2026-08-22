@@ -142,7 +142,7 @@ impl Renderer {
                 }
 
                 let indirect_calls = scenario.collect_draw_calls();
-
+                
                 // Draw non-indexed indirect calls
                 unsafe {
                     let indirect_buffer_ptr = frame.renderer.context.allocator().map_memory(&mut frame.renderer.frame_data.as_mut().unwrap()[frame.renderer.current_frame].indirect_buffer_allocation).unwrap();

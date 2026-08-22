@@ -64,12 +64,12 @@ void main()
     VertexBuffer vb = mesh.vertex_buff;
 
     uint index;
-    //if (mesh.index_count > 0) {
-    //    IndexBuffer ib = mesh.index_buff;
-    //    index = ib.indices[gl_VertexIndex];
-    //} else {
+    if (mesh.index_count > 0) {
+        IndexBuffer ib = mesh.index_buff;
+        index = ib.indices[gl_VertexIndex];
+    } else {
         index = gl_VertexIndex;
-    //}
+    }
 
     vec3 position = vec3(
         vb.vertices[index * 3],
@@ -81,30 +81,30 @@ void main()
     mat4 mvp = cam.projection_matrix * cam.view_matrix * instance.transform;
     gl_Position = mvp * vec4(position, 1.0);
 
-    //vec3 normal = vec3(0.0, 1.0, 0.0);
-    //if (mesh.normal_count > 0) {
-    //    NormalBuffer nb = mesh.normal_buff;
-    //    normal = vec3(
-    //        nb.normals[index * 3],
-    //        nb.normals[index * 3 + 1],
-    //        nb.normals[index * 3 + 2]
-    //    );
-    //}
+    vec3 normal = vec3(0.0, 1.0, 0.0);
+    if (mesh.normal_count > 0) {
+        NormalBuffer nb = mesh.normal_buff;
+        normal = vec3(
+            nb.normals[index * 3],
+            nb.normals[index * 3 + 1],
+            nb.normals[index * 3 + 2]
+        );
+    }
 
     // basic diffuse shading
-    //vec3 sun_dir = vec3(0.2, 1.0, 0.5);
-    //mat3 normal_matrix = mat3(transpose(inverse(instance.transform)));
-    //vec3 world_normal = normalize(normal_matrix * normal);
-    //float light = min(max(0.3, dot(normalize(sun_dir), world_normal)), 1.0);
+    vec3 sun_dir = vec3(0.2, 1.0, 0.5);
+    mat3 normal_matrix = mat3(transpose(inverse(instance.transform)));
+    vec3 world_normal = normalize(normal_matrix * normal);
+    float light = min(max(0.3, dot(normalize(sun_dir), world_normal)), 1.0);
 
-    //vec3 color = vec3(1.0);
-    //if (mesh.color_count > 0) {
-    //    ColorBuffer cb = mesh.color_buff;
-    //    color = vec3(
-    //        cb.colors[index * 3],
-    //        cb.colors[index * 3 + 1],
-    //        cb.colors[index * 3 + 2]
-    //    );
-    //}
-    //fragColor = light * color;
+    vec3 color = vec3(1.0);
+    if (mesh.color_count > 0) {
+        ColorBuffer cb = mesh.color_buff;
+        color = vec3(
+            cb.colors[index * 3],
+            cb.colors[index * 3 + 1],
+            cb.colors[index * 3 + 2]
+        );
+    }
+    fragColor = light * color;
 }
