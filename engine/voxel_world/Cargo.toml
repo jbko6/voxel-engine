@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-macros = { path = "./macros" }
 indexmap = "2.14.0"
 sorted-vec = "0.8.11"
 voxel_rendering = { path = "../voxel_rendering" }

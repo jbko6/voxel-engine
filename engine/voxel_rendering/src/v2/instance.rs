@@ -32,7 +32,7 @@ pub struct InstanceHandle {
 impl Renderer {
 
     pub fn create_instance(&mut self, scenario_handle: ScenarioHandle, transform: glam::Mat4, mesh_handle: MeshHandle) -> InstanceHandle {
-        let scenario = &mut self.scenarios[scenario_handle.index];
+        let scenario = &mut self.resources.as_mut().unwrap().scenarios[scenario_handle.index];
         let instance = Instance { transform, mesh_idx: mesh_handle.index as u32 };
         let index = scenario.add_instance(instance);
         InstanceHandle { index }

@@ -57,7 +57,7 @@ impl Camera {
 
 impl Renderer  {
     pub fn update_camera(&mut self, scenario: ScenarioHandle, camera: &Camera, aspect_ratio: f32) {
-        let scenario = &mut self.scenarios[scenario.index];
+        let scenario = &mut self.resources.as_mut().unwrap().scenarios[scenario.index];
         let gpu_camera = camera.get_gpu_camera(aspect_ratio);
         scenario.update_camera(gpu_camera);
     }

@@ -33,3 +33,6 @@ pub use swapchain::*;
 
 pub mod global_buffer;
 pub use global_buffer::*;
+
+pub mod buffer;
+pub use buffer::*;

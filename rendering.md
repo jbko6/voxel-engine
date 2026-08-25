@@ -23,14 +23,6 @@ later transition to flat vecs with the octree nodes storing indexes
 (for use with acceleration structure in raytracing, with AABB tree properties)
 
 
-Other to-do:
-Build an allocator for the vertex and index "mega-buffer"s
-For other meshes: have some other buffer where their data can be stored
-
-
-
-
-
 rendering
 
 - need more abstractions
@@ -53,9 +45,15 @@ alternative: aggressive LOD, threaded meshing, forward+ render
 
 good article for implementing forward+ rendering: https://www.3dgep.com/forward-plus/#Forward
 
-
-
-push buffer device address to an "objects" buffer
-shaders accesses object data using gl_DrawID
-object data contains direct buffer device address to vertex data, index data, normal data, etc. as well a bit field that tells if those buffer
-device address are valid (if the object has that data)
+new plan:
+renderer holds
+- scenarios
+- static global buffer
+- dynamic global buffer (persistently mapped)
+- staging buffer (persistently mapped)
+scenarios hold
+- camera
+- environment
+- instances
+- meshes 
+  - separated into static vs. dynamic meshes (basically how often will that mesh be updated)

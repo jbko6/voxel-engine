@@ -55,6 +55,7 @@ pub(crate) struct RenderingContext {
     pub queue_family_index: u32,
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub command_pool: vk::CommandPool,
+    pub staging_cmd_buffer: vk::CommandBuffer,
     pub pipeline_layout: vk::PipelineLayout,
     allocator: Option<vk_mem::Allocator>,
 }
@@ -281,6 +282,20 @@ impl RenderingContext {
                 .unwrap()
         };
 
+        // Staging Command Buffer
+        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::default()
+            .command_pool(command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+        let staging_cmd_buffer = unsafe {
+            device
+                .allocate_command_buffers(&command_buffer_allocate_info)
+                .unwrap()
+                .into_iter()
+                .next()
+                .unwrap()
+        };
+
         // Descriptor Set Layout
         let descriptor_layout_bindings = [
             vk::DescriptorSetLayoutBinding::default()
@@ -334,6 +349,7 @@ impl RenderingContext {
                 .expect("Failed to create pipeline layout")
         };
 
+
         println!("Vulkan context initialized successfully.");
 
         RenderingContext {
@@ -354,6 +370,7 @@ impl RenderingContext {
             queue_family_index,
             descriptor_set_layout,
             command_pool,
+            staging_cmd_buffer,
             pipeline_layout,
         }
     }
@@ -382,6 +399,10 @@ impl Drop for RenderingContext {
             // Drop descriptor set layout
             self.device
                 .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+
+            // Drop staging command buffer
+            self.device
+                .free_command_buffers(self.command_pool, &[self.staging_cmd_buffer]);
 
             // Drop command pool
             self.device.destroy_command_pool(self.command_pool, None);

@@ -13,5 +13,4 @@ winit = "0.30.13"
 [workspace]
 members = [
     "engine/*",
-    "engine/voxel_world/macros"
 ]

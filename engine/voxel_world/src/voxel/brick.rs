@@ -1,48 +1,31 @@
 use std::rc::Rc;
 
 use glam::Vec3;
-use voxel_rendering::v2::{Mesh, MeshBuilder, Renderer, Vertex};
+use voxel_rendering::v2::{Mesh, ArrayMesh, Renderer, Vertex};
 
-pub const VOXEL_SIZE: f32 = 0.2;
+use crate::voxel::{Palette, VOXEL_SIZE, Voxel};
 
-#[derive(Clone, Copy, Debug)]
-pub struct Voxel {
-    pub material: u8,
-}
+pub const BRICK_SIZE: usize = 16;
 
-pub struct Catalog {
-    pub material_to_color: [[f32; 3]; 256],
-}
-
-impl Catalog {
-    pub fn new() -> Self {
-        let mut material_to_color = [[0.0, 0.0, 0.0]; 256];
-        material_to_color[0] = [0.0, 0.0, 0.0]; // Air
-        material_to_color[1] = [1.0, 1.0, 1.0]; // Solid block
-        // Add more materials and their colors as needed
-        Catalog { material_to_color }
-    }
-}
-
-pub const CHUNK_SIZE: usize = 16;
-
-pub struct Chunk {
-    voxels: [[[Voxel; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
-    cached_mesh: Option<MeshBuilder>,
-    catalog: Rc<Catalog>,
+pub struct Brick {
+    origin: [isize; 3],
+    voxels: [[[Voxel; BRICK_SIZE]; BRICK_SIZE]; BRICK_SIZE],
+    cached_mesh: Option<ArrayMesh>,
+    palette: Rc<Palette>,
 }
 
 fn is_in_bounds(pos: [usize; 3]) -> bool {
     let [x, y, z] = pos;
-    x < CHUNK_SIZE && y < CHUNK_SIZE && z < CHUNK_SIZE
+    x < BRICK_SIZE && y < BRICK_SIZE && z < BRICK_SIZE
 }
 
-impl Chunk {
-    pub fn new(catalog: Rc<Catalog>) -> Self {
-        Chunk {
-            voxels: [[[Voxel { material: 0 }; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE],
+impl Brick {
+    pub fn new(origin: [isize; 3], palette: Rc<Palette>) -> Self {
+        Brick {
+            origin: origin,
+            voxels: [[[Voxel { material: 0 }; BRICK_SIZE]; BRICK_SIZE]; BRICK_SIZE],
             cached_mesh: None,
-            catalog: catalog
+            palette: palette
         }
     }    
 
@@ -57,7 +40,16 @@ impl Chunk {
         }
     }
 
-    pub fn get_voxel(&self, pos: [usize; 3]) -> Option<&Voxel> {
+    pub fn get_voxel(&self, pos: [isize; 3]) -> Option<&Voxel> {
+        let local_pos = [
+            (pos[0] - self.origin[0]) as usize,
+            (pos[1] - self.origin[1]) as usize,
+            (pos[2] - self.origin[2]) as usize,
+        ];
+        self.get_local_voxel(local_pos)
+    }
+
+    pub fn get_local_voxel(&self, pos: [usize; 3]) -> Option<&Voxel> {
         if is_in_bounds(pos) {
             let [x, y, z] = pos;
             Some(&self.voxels[x][y][z])
@@ -68,7 +60,7 @@ impl Chunk {
 
     /// add more complexity later
     pub fn is_voxel_solid(&self, pos: [usize; 3]) -> bool {
-        if let Some(voxel) = self.get_voxel(pos) {
+        if let Some(voxel) = self.get_local_voxel(pos) {
             voxel.material != 0
         } else {
             false
@@ -82,7 +74,7 @@ impl Chunk {
         }
     }
 
-    pub fn get_mesh(&mut self) -> &MeshBuilder {
+    pub fn get_mesh(&mut self) -> &ArrayMesh {
         if self.cached_mesh.is_none() {
             let mesh = self.generate_mesh();
             self.cached_mesh = Some(mesh);
@@ -90,11 +82,11 @@ impl Chunk {
         self.cached_mesh.as_ref().unwrap()
     }
 
-    pub fn get_mesh_ref(&self) -> Option<&MeshBuilder> {
+    pub fn get_mesh_ref(&self) -> Option<&ArrayMesh> {
         self.cached_mesh.as_ref()
     }
 
-    fn generate_mesh(&self) -> MeshBuilder {
+    fn generate_mesh(&self) -> ArrayMesh {
         #[derive(Clone, Copy, PartialEq)]
         struct MaskCell {
             material: u8,
@@ -104,24 +96,24 @@ impl Chunk {
 
         let sample_material = |pos: [isize; 3]| -> u8 {
             let [x, y, z] = pos;
-            if x < 0 || y < 0 || z < 0 || x >= CHUNK_SIZE as isize || y >= CHUNK_SIZE as isize || z >= CHUNK_SIZE as isize {
+            if x < 0 || y < 0 || z < 0 || x >= BRICK_SIZE as isize || y >= BRICK_SIZE as isize || z >= BRICK_SIZE as isize {
                 return 0;
             }
 
             self.voxels[x as usize][y as usize][z as usize].material
         };
 
-        let mut mesh = MeshBuilder::new();
+        let mut mesh = ArrayMesh::new();
 
         for norm in 0..3 {
             let tan = (norm + 1) % 3;
             let bitan = (norm + 2) % 3;
 
-            for slice in 0..=CHUNK_SIZE {
-                let mut mask: [Option<MaskCell>; CHUNK_SIZE * CHUNK_SIZE] = [None; CHUNK_SIZE * CHUNK_SIZE];
+            for slice in 0..=BRICK_SIZE {
+                let mut mask: [Option<MaskCell>; BRICK_SIZE * BRICK_SIZE] = [None; BRICK_SIZE * BRICK_SIZE];
 
-                for i in 0..CHUNK_SIZE {
-                    for j in 0..CHUNK_SIZE {
+                for i in 0..BRICK_SIZE {
+                    for j in 0..BRICK_SIZE {
                         let mut pos = [0isize; 3];
                         pos[norm] = slice as isize;
                         pos[tan] = i as isize;
@@ -154,15 +146,15 @@ impl Chunk {
                             None
                         };
 
-                        mask[i * CHUNK_SIZE + j] = cell;
+                        mask[i * BRICK_SIZE + j] = cell;
                     }
                 }
 
                 let mut y = 0;
-                while y < CHUNK_SIZE {
+                while y < BRICK_SIZE {
                     let mut x = 0;
-                    while x < CHUNK_SIZE {
-                        let current = mask[x * CHUNK_SIZE + y];
+                    while x < BRICK_SIZE {
+                        let current = mask[x * BRICK_SIZE + y];
                         if current.is_none() {
                             x += 1;
                             continue;
@@ -171,14 +163,14 @@ impl Chunk {
                         let current = current.unwrap();
 
                         let mut width = 1;
-                        while x + width < CHUNK_SIZE && mask[(x + width) * CHUNK_SIZE + y] == Some(current) {
+                        while x + width < BRICK_SIZE && mask[(x + width) * BRICK_SIZE + y] == Some(current) {
                             width += 1;
                         }
 
                         let mut height = 1;
-                        'outer: while y + height < CHUNK_SIZE {
+                        'outer: while y + height < BRICK_SIZE {
                             for w in 0..width {
-                                if mask[(x + w) * CHUNK_SIZE + (y + height)] != Some(current) {
+                                if mask[(x + w) * BRICK_SIZE + (y + height)] != Some(current) {
                                     break 'outer;
                                 }
                             }
@@ -198,7 +190,7 @@ impl Chunk {
 
                         let vert_from_pos = |pos: [i32; 3], normal: [f32; 3], material: u8| -> Vertex {
                             let pos_vec = Vec3::new(pos[0] as f32, pos[1] as f32, pos[2] as f32);
-                            let color = self.catalog.material_to_color[material as usize];
+                            let color = self.palette.material_to_color[material as usize];
                             Vertex {
                                 pos: [pos_vec.x * VOXEL_SIZE, pos_vec.y * VOXEL_SIZE, pos_vec.z * VOXEL_SIZE],
                                 normal: Some(normal),
@@ -217,7 +209,7 @@ impl Chunk {
 
                         for dy in 0..height {
                             for dx in 0..width {
-                                mask[(x + dx) * CHUNK_SIZE + (y + dy)] = None;
+                                mask[(x + dx) * BRICK_SIZE + (y + dy)] = None;
                             }
                         }
 

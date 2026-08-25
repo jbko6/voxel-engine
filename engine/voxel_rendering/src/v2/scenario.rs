@@ -66,9 +66,9 @@ impl Renderer {
             meshes: Vec::new(),
         };
 
-        self.scenarios.push(scenario);
+        self.resources.as_mut().unwrap().scenarios.push(scenario);
 
-        ScenarioHandle { index: self.scenarios.len() - 1 }
+        ScenarioHandle { index: self.resources.as_mut().unwrap().scenarios.len() - 1 }
     }
 }
 

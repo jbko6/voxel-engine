@@ -16,6 +16,11 @@ pub(crate) struct GPUMesh {
     pub colors_present: u32,
 }
 
+pub enum MeshType {
+    Dynamic,
+    Static,
+}
+
 pub struct Mesh {
     pub(crate) vertex_count: u32,
     pub(crate) index_count: u32,
@@ -37,14 +42,6 @@ impl Mesh {
             normals_present: self.normal_alloc.is_some() as u32,
             color_offset: self.color_offset.unwrap_or(0) as u32,
             colors_present: self.color_alloc.is_some() as u32,
-        }
-    }
-}
-
-impl Drop for Mesh {
-    fn drop(&mut self) {
-        unsafe {
-            
         }
     }
 }
@@ -139,7 +136,7 @@ impl Renderer {
         self.create_mesh(scenario_handle, &vertices,Some(&indices), Some(&normals), colors.as_deref())
     }
 
-    pub fn build_mesh(&mut self, scenario_handle: ScenarioHandle, builder: &MeshBuilder) -> MeshHandle {
+    pub fn build_mesh(&mut self, scenario_handle: ScenarioHandle, builder: &ArrayMesh) -> MeshHandle {
         let vertices: Vec<[f32; 3]> = builder.vertices.iter().map(|v| v.pos).collect();
         let normals_present = builder.vertices[0].normal.is_some();
         let colors_present = builder.vertices[0].color.is_some();
@@ -165,12 +162,11 @@ impl Renderer {
         normals: Option<&[[f32; 3]]>,
         colors: Option<&[[f32; 3]]>,
     ) -> MeshHandle {
-        let global_buffer = &mut self.global_buffer;
-        let allocator = self.context.allocator();
-        let (vertex_alloc, vertex_offset) = global_buffer.init_buffer(allocator, BufferType::VERTEX, vertices);
-        let (index_alloc, index_offset) = indices.map(|i| global_buffer.init_buffer(allocator, BufferType::INDEX, i)).unzip();
-        let (normal_alloc, normal_offset) = normals.map(|n| global_buffer.init_buffer(allocator, BufferType::NORMAL, n)).unzip();
-        let (color_alloc, color_offset) = colors.map(|c| global_buffer.init_buffer(allocator, BufferType::COLOR, c)).unzip();
+        let global_buffer = &mut self.resources.as_mut().unwrap().dynamic_global_buffer;
+        let (vertex_alloc, vertex_offset) = global_buffer.init_buffer(BufferType::VERTEX, vertices);
+        let (index_alloc, index_offset) = indices.map(|i| global_buffer.init_buffer(BufferType::INDEX, i)).unzip();
+        let (normal_alloc, normal_offset) = normals.map(|n| global_buffer.init_buffer(BufferType::NORMAL, n)).unzip();
+        let (color_alloc, color_offset) = colors.map(|c| global_buffer.init_buffer(BufferType::COLOR, c)).unzip();
 
         let mesh = Mesh {
             vertex_count: vertices.len() as u32,
@@ -185,7 +181,7 @@ impl Renderer {
             color_offset: color_offset.map(|o| o / std::mem::size_of::<[f32; 3]>() as u64),
         };
 
-        let scenario = &mut self.scenarios[scenario_handle.index];
+        let scenario = &mut self.resources.as_mut().unwrap().scenarios[scenario_handle.index];
 
         let index = scenario.add_mesh(mesh);
 
@@ -200,14 +196,14 @@ pub struct Vertex {
     pub color: Option<[f32; 3]>,
 }
 
-pub struct MeshBuilder {
+pub struct ArrayMesh {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
 }
 
-impl MeshBuilder {
+impl ArrayMesh {
     pub fn new() -> Self {
-        MeshBuilder {
+        ArrayMesh {
             vertices: Vec::new(),
             indices: Vec::new(),
         }

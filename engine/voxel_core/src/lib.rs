@@ -118,7 +118,7 @@ impl App {
         let scenario = r.create_scenario();
 
         let camera = voxel_rendering::v2::Camera::new(45.0, 0.1, 100.0);
-        let controller = CameraController::new(Vec3::new(0.0, 0.0, -10.0));
+        let controller = CameraController::new(Vec3::new(0.0, 0.0, 10.0));
 
         App {
             sdl,

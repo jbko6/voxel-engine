@@ -5,11 +5,17 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use vk_mem::Alloc;
 
 use crate::v2::{
-    BufferType, FrameData, GPUCamera, GPUScenario, GlobalBuffer, Image, Pipeline, RenderingContext,
-    Scenario, Shader, Swapchain,
+    Buffer, BufferType, FrameData, GPUCamera, GPUScenario, GlobalBuffer, Image, Pipeline, RenderingContext, Scenario, Shader, Swapchain,
 };
 
 const FRAMES_IN_FLIGHT: usize = 2;
+
+pub struct RendererResources {
+    pub(crate) pipeline: Pipeline,
+    pub(crate) static_global_buffer: GlobalBuffer,
+    pub(crate) dynamic_global_buffer: GlobalBuffer,
+    pub(crate) scenarios: Vec<Scenario>,
+}
 
 pub struct Renderer {
     pub(crate) context: Arc<RenderingContext>,
@@ -19,9 +25,7 @@ pub struct Renderer {
     current_frame: usize,
     surface: vk::SurfaceKHR,
     swapchain: Option<Swapchain>,
-    pub(crate) global_buffer: GlobalBuffer,
-    pub(crate) scenarios: Vec<Scenario>,
-    pipeline: Option<Pipeline>, // TODO: add pipeline management
+    pub(crate) resources: Option<RendererResources>,
     frame_index: usize,
     frame_start_time: std::time::Instant,
 }
@@ -64,7 +68,16 @@ impl Renderer {
             Shader::new(context.clone(), "shaders/fragment.frag.spv"),
         );
 
-        let global_buffer = GlobalBuffer::new(context.allocator());
+        Buffer::init_staging_buffer(context.clone());
+        let dynamic_global_buffer = GlobalBuffer::new(context.clone(), &vk_mem::AllocationCreateInfo {
+            usage: vk_mem::MemoryUsage::Auto,
+            flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | vk_mem::AllocationCreateFlags::MAPPED,
+            ..Default::default()
+        });
+        let static_global_buffer = GlobalBuffer::new(context.clone(), &vk_mem::AllocationCreateInfo {
+            usage: vk_mem::MemoryUsage::Auto,
+            ..Default::default()
+        });
 
         println!(
             "Renderer initialization complete. Swapchain format: {:?}",
@@ -79,9 +92,12 @@ impl Renderer {
             current_frame: 0,
             surface,
             swapchain,
-            pipeline: Some(pipeline),
-            global_buffer: global_buffer,
-            scenarios: Vec::new(),
+            resources: Some(RendererResources {
+                pipeline,
+                dynamic_global_buffer,
+                static_global_buffer,
+                scenarios: Vec::new(),
+            }),
             frame_index: 0,
             frame_start_time: std::time::Instant::now(),
         }
@@ -113,7 +129,7 @@ impl Renderer {
                 frame.renderer.context.device.cmd_bind_pipeline(
                     frame.renderer.current_frame().command_buffer,
                     vk::PipelineBindPoint::GRAPHICS,
-                    frame.renderer.pipeline.as_ref().unwrap().pipeline,
+                    frame.renderer.resources.as_ref().unwrap().pipeline.handle,
                 );
             }
             let width = frame.renderer.swapchain.as_ref().unwrap().extent.width as f32;
@@ -160,8 +176,9 @@ impl Renderer {
                                 .buffer_info(&[vk::DescriptorBufferInfo {
                                     buffer: frame
                                         .renderer
-                                        .global_buffer
-                                        .get_buffer(BufferType::VERTEX),
+                                        .resources.as_ref().unwrap()
+                                        .dynamic_global_buffer
+                                        .get_buffer(BufferType::VERTEX).handle,
                                     offset: 0,
                                     range: vk::WHOLE_SIZE,
                                 }]),
@@ -171,8 +188,9 @@ impl Renderer {
                                 .buffer_info(&[vk::DescriptorBufferInfo {
                                     buffer: frame
                                         .renderer
-                                        .global_buffer
-                                        .get_buffer(BufferType::NORMAL),
+                                        .resources.as_ref().unwrap()
+                                        .dynamic_global_buffer
+                                        .get_buffer(BufferType::NORMAL).handle,
                                     offset: 0,
                                     range: vk::WHOLE_SIZE,
                                 }]),
@@ -182,8 +200,9 @@ impl Renderer {
                                 .buffer_info(&[vk::DescriptorBufferInfo {
                                     buffer: frame
                                         .renderer
-                                        .global_buffer
-                                        .get_buffer(BufferType::COLOR),
+                                        .resources.as_ref().unwrap()
+                                        .dynamic_global_buffer
+                                        .get_buffer(BufferType::COLOR).handle,
                                     offset: 0,
                                     range: vk::WHOLE_SIZE,
                                 }]),
@@ -194,13 +213,13 @@ impl Renderer {
             unsafe {
                 frame.renderer.context.device.cmd_bind_index_buffer(
                     frame.renderer.current_frame().command_buffer,
-                    frame.renderer.global_buffer.get_buffer(BufferType::INDEX),
+                    frame.renderer.resources.as_ref().unwrap().dynamic_global_buffer.get_buffer(BufferType::INDEX).handle,
                     0,
                     vk::IndexType::UINT32,
                 );
             }
 
-            for (i, scenario) in frame.renderer.scenarios.iter().enumerate() {
+            for (i, scenario) in frame.renderer.resources.as_ref().unwrap().scenarios.iter().enumerate() {
                 // Update descriptor sets for the scenario
                 unsafe {
                     frame
@@ -503,9 +522,7 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
             self.context.device.device_wait_idle().unwrap();
-            self.scenarios.clear(); // Drop scenarios first
-            self.global_buffer.free(self.context.allocator());
-            self.pipeline = None; // Drop pipeline next
+            self.resources = None; // Drop resources first
             self.swapchain = None; // Drop swapchain next
             self.frame_data = None; // Drop frame data next
             self.context

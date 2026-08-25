@@ -6,7 +6,7 @@ use crate::v2::{Renderer, RenderingContext, Shader};
 
 pub(crate) struct Pipeline {
     pub context: Arc<RenderingContext>,
-    pub pipeline: vk::Pipeline,
+    pub handle: vk::Pipeline,
 }
 
 impl Pipeline {
@@ -79,7 +79,7 @@ impl Pipeline {
             .layout(context.pipeline_layout)
             .push_next(&mut rendering_info)
             .subpass(0);
-        let pipeline = unsafe {
+        let handle = unsafe {
             context
                 .device
                 .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
@@ -88,7 +88,7 @@ impl Pipeline {
 
         Self {
             context,
-            pipeline,
+            handle,
         }
     }
 }
@@ -97,7 +97,7 @@ impl Drop for Pipeline {
     fn drop(&mut self) {
         unsafe {
             self.context.device.device_wait_idle().expect("Failed to wait for device idle");
-            self.context.device.destroy_pipeline(self.pipeline, None);
+            self.context.device.destroy_pipeline(self.handle, None);
         }
     }
 }
